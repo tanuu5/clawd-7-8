@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Clawd 7/8</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Martian+Mono:wght@400;600&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+  /* 単一のダーク世界で設計（夜のステージ）。テーマ切替には追従させない意図的な選択。 */
+  :root {
+    color-scheme: dark;
+    --ink: #0B0D17;
+    --stage: #151A30;
+    --line: #2A3154;
+    --clay: #C67D5F;
+    --clay-hi: #E08A66;
+    --brass: #F2C14E;
+    --lilac: #8A96C9;
+    --teal: #5FBFAE;
+    --paper: #ECE6DA;
+    --mute: #8C90A8;
+    --display: "Syne", "Avenir Next", "Helvetica Neue", sans-serif;
+    --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --body: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { background: var(--ink); color: var(--paper); font-family: var(--body); overflow: hidden; }
+  #app { position: fixed; inset: 0; overflow: hidden; }
+  #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: absolute; inset: 0 0 auto 0; pointer-events: none;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  }
+  .meter { display: grid; gap: 6px; }
+  .song { font: 600 10px/1 var(--mono); letter-spacing: .18em; color: var(--mute); text-transform: uppercase; }
+  .sig-row { display: flex; align-items: baseline; gap: 12px; }
+  #meterSig { font: 800 44px/0.9 var(--display); letter-spacing: -.02em; color: var(--paper); font-variant-numeric: tabular-nums; }
+  .groups { display: flex; gap: 7px; align-items: center; }
+  .grp { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); }
+  .pip { width: 9px; height: 14px; background: var(--line); transition: background .08s; }
+  .pip.head { height: 18px; }
+  .pip.on { background: var(--brass); }
+  .grp-num { font: 600 10px/1 var(--mono); color: var(--mute); margin-top: 4px; letter-spacing: .1em; }
+  #secLabel { font: 600 11px/1.4 var(--mono); color: var(--lilac); letter-spacing: .12em; }
+  #secLabel b { color: var(--paper); font-weight: 600; }
+
+  .scorebox { text-align: right; display: grid; gap: 4px; justify-items: end; }
+  .lbl { font: 600 10px/1 var(--mono); letter-spacing: .18em; color: var(--mute); }
+  #score { font: 600 clamp(22px, 4.2vw, 36px)/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  #combo { font: 800 20px/1 var(--display); color: var(--brass); min-height: 20px; font-variant-numeric: tabular-nums; }
+  #combo small { font: 600 10px/1 var(--mono); letter-spacing: .16em; color: var(--mute); margin-left: 6px; }
+  .progress { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(138,150,201,.15); }
+  #prog { display: block; height: 100%; width: 0; background: var(--clay-hi); }
+
+  /* ---------- 判定 ---------- */
+  #judge { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; }
+  #judgeText { display: block; font: 800 clamp(28px, 6vw, 52px)/1 var(--display); letter-spacing: .06em; opacity: 0; }
+  #judgeText.pop { animation: pop .42s ease-out forwards; }
+  #judgeMs { display: block; font: 400 11px/1 var(--mono); letter-spacing: .12em; color: var(--mute); margin-top: 6px; min-height: 11px; }
+  @keyframes pop {
+    0% { opacity: 1; transform: scale(1.25); }
+    25% { transform: scale(1); }
+    75% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-6px); }
+  }
+
+  #labels span {
+    position: absolute; transform: translate(-50%, 0); pointer-events: none;
+    font: 600 12px/1 var(--mono); color: var(--mute); letter-spacing: .1em;
+  }
+
+  /* ---------- Clawd ---------- */
+  #clawdStage {
+    position: absolute; pointer-events: none;
+    left: max(16px, calc(50% - 560px)); bottom: 16%;
+    width: clamp(150px, 16vw, 220px);
+    display: grid; justify-items: center; gap: 8px;
+  }
+  #clawdStage::before {
+    content: ""; position: absolute; left: -30%; right: -30%; bottom: 14px; height: 260%;
+    background: radial-gradient(ellipse 50% 100% at 50% 100%, rgba(242,193,78,.13), transparent 70%);
+    clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%); z-index: -1;
+  }
+  .floor { width: 120%; height: 18px; margin-top: -14px; border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(198,125,95,.55), rgba(198,125,95,0) 70%); transition: transform .12s; }
+  .floor.beat { transform: scale(1.12); }
+  .crab-wrap { width: 100%; }
+  #crab { width: 100%; height: auto; overflow: visible; display: block; }
+  #crabAll { transform-box: fill-box; transform-origin: center; transition: transform 0.09s ease-out; }
+  #armL { transform-box: fill-box; transform-origin: 100% 50%; transition: transform 0.1s ease-out; }
+  #armR { transform-box: fill-box; transform-origin: 0% 50%; transition: transform 0.1s ease-out; }
+  #legs rect { transform-box: fill-box; transform-origin: center; transition: transform 0.08s ease-out; }
+  #eyes rect { transform-box: fill-box; transform-origin: center; transition: transform 0.25s; }
+  .tag { font: 600 10px/1 var(--mono); letter-spacing: .22em; color: var(--mute); }
+
+  /* ---------- オーバーレイ ---------- */
+  .overlay {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    background: linear-gradient(180deg, rgba(11,13,23,.55), rgba(11,13,23,.88));
+    overflow-y: auto;
+  }
+  .panel { width: min(560px, 100%); display: grid; gap: 20px; }
+  .eyebrow { font: 600 11px/1.5 var(--mono); letter-spacing: .18em; color: var(--clay-hi); text-transform: uppercase; }
+  h1 { margin: 0; font: 800 clamp(56px, 13vw, 104px)/.86 var(--display); letter-spacing: -.035em; text-wrap: balance; }
+  h1 .frac { color: var(--brass); }
+  .track { display: grid; gap: 4px; border-left: 2px solid var(--clay); padding-left: 12px; }
+  .track b { font: 700 18px/1.2 var(--display); letter-spacing: .01em; }
+  .track span { font: 400 11px/1.5 var(--mono); color: var(--mute); letter-spacing: .04em; }
+  .diffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .diff {
+    appearance: none; border: 1px solid var(--line); background: rgba(21,26,48,.8); color: var(--paper);
+    padding: 12px 10px; text-align: left; cursor: pointer; display: grid; gap: 6px; font-family: var(--body);
+  }
+  .diff b { font: 800 16px/1 var(--display); letter-spacing: .04em; }
+  .diff span { font: 400 10px/1.4 var(--mono); color: var(--mute); }
+  .diff[aria-pressed="true"] { border-color: var(--brass); background: rgba(242,193,78,.1); }
+  .diff[aria-pressed="true"] b { color: var(--brass); }
+  .diff:focus-visible, .btn:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .btn {
+    appearance: none; border: 0; cursor: pointer; padding: 14px 22px;
+    font: 800 16px/1 var(--display); letter-spacing: .06em; background: var(--clay-hi); color: var(--ink);
+  }
+  .btn.ghost { background: transparent; color: var(--paper); border: 1px solid var(--line); }
+  .btn kbd { font: 400 10px/1 var(--mono); opacity: .7; margin-left: 8px; }
+  .help { display: grid; gap: 6px; font-size: 13px; line-height: 1.6; color: #C9C6C0; }
+  .help kbd { font: 600 11px/1 var(--mono); border: 1px solid var(--line); padding: 3px 6px; color: var(--paper); }
+  .offset { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 12px; color: var(--mute); }
+  .offset output { font: 600 12px/1 var(--mono); color: var(--paper); min-width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }
+  .offset input { width: 100%; accent-color: var(--clay-hi); }
+  .note { font-size: 11px; line-height: 1.6; color: var(--mute); }
+
+  .rank { font: 800 clamp(96px, 22vw, 150px)/.8 var(--display); color: var(--brass); letter-spacing: -.04em; }
+  .res-top { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+  .res-score { display: grid; gap: 6px; }
+  .res-score b { font: 600 clamp(26px, 6vw, 38px)/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .fc { font: 600 11px/1 var(--mono); letter-spacing: .18em; color: var(--teal); }
+  .tally { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .tally div { padding: 12px 0; display: grid; gap: 6px; }
+  .tally div + div { border-left: 1px solid var(--line); padding-left: 12px; }
+  .tally b { font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .sub { font: 400 11px/1.5 var(--mono); color: var(--mute); letter-spacing: .04em; }
+
+  @media (max-width: 720px), (max-aspect-ratio: 4/5) {
+    #clawdStage { left: 50%; transform: translateX(-50%); bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 96px); width: 104px; gap: 4px; }
+    #clawdStage::before { display: none; }
+    .tag { display: none; }
+    #meterSig { font-size: 34px; }
+    .pip { width: 7px; height: 11px; } .pip.head { height: 14px; }
+    .diffs { grid-template-columns: 1fr; }
+    .tally b { font-size: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #judgeText.pop { animation-duration: .01s; opacity: 1; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl" aria-label="ノーツが流れる4レーンのハイウェイ"></canvas>
+
+  <div id="hud">
+    <div class="progress"><i id="prog"></i></div>
+    <div class="meter">
+      <div class="song">Seven Claws</div>
+      <div class="sig-row"><span id="meterSig">7/8</span><div><div class="groups" id="meterGroups"></div><div class="grp-num" id="grpNum">2+2+3</div></div></div>
+      <div id="secLabel">INTRO · <b>Dm9</b></div>
+    </div>
+    <div class="scorebox">
+      <div class="lbl">SCORE</div>
+      <div id="score">0000000</div>
+      <div id="combo"></div>
+    </div>
+  </div>
+
+  <div id="judge"><span id="judgeText"></span><small id="judgeMs"></small></div>
+  <div id="labels"></div>
+
+  <div id="clawdStage" aria-hidden="true">
+    <div class="crab-wrap">
+      <svg id="crab" viewBox="0 0 150 110" xmlns="http://www.w3.org/2000/svg">
+        <g id="crabAll">
+          <g id="armL"><rect x="12" y="35" width="24" height="22" fill="#C67D5F"/></g>
+          <g id="armR"><rect x="114" y="35" width="24" height="22" fill="#C67D5F"/></g>
+          <rect x="32" y="8" width="86" height="66" fill="#C67D5F"/>
+          <g id="legs">
+            <rect class="legA" x="44" y="74" width="9" height="22" fill="#C67D5F"/>
+            <rect class="legB" x="60" y="74" width="9" height="22" fill="#C67D5F"/>
+            <rect class="legA" x="82" y="74" width="9" height="22" fill="#C67D5F"/>
+            <rect class="legB" x="98" y="74" width="9" height="22" fill="#C67D5F"/>
+          </g>
+          <g id="eyes">
+            <rect id="eyeL" x="50" y="22" width="13" height="13" fill="#141414"/>
+            <rect id="eyeR" x="88" y="22" width="13" height="13" fill="#141414"/>
+          </g>
+          <text id="zzz" x="118" y="14" font-size="13" fill="#8A96C9" opacity="0">z z z</text>
+        </g>
+      </svg>
+    </div>
+    <div class="floor" id="floor"></div>
+    <div class="tag">CLAWD · DANCER</div>
+  </div>
+
+  <!-- タイトル -->
+  <div id="title" class="overlay">
+    <div class="panel">
+      <div class="eyebrow">Odd-meter rhythm game · 変拍子リズムゲーム</div>
+      <h1>Clawd <span class="frac">7/8</span></h1>
+      <div class="track">
+        <b>♪ Seven Claws</b>
+        <span>7/8 (2+2+3) → 10/8 (3+3+2+2) → 13/8 (3+3+3+2+2) · ♪=300 · D dorian · 約80秒</span>
+      </div>
+      <div class="diffs" role="group" aria-label="難易度">
+        <button class="diff" id="diff1" data-level="1" aria-pressed="false"><b>EASY</b><span id="info1"></span></button>
+        <button class="diff" id="diff2" data-level="2" aria-pressed="true"><b>NORMAL</b><span id="info2"></span></button>
+        <button class="diff" id="diff3" data-level="3" aria-pressed="false"><b>HARD</b><span id="info3"></span></button>
+      </div>
+      <div class="help">
+        <div>キー：<kbd>D</kbd> <kbd>F</kbd> <kbd>J</kbd> <kbd>K</kbd>（または <kbd>←</kbd> <kbd>↓</kbd> <kbd>↑</kbd> <kbd>→</kbd>）</div>
+        <div>タップ：レーンを直接タッチ（複数指OK）　<kbd>Esc</kbd> 一時停止</div>
+      </div>
+      <label class="offset" for="offset">音の遅延補正
+        <input type="range" id="offset" min="-120" max="200" step="5" value="0">
+        <output id="offsetOut">0 ms</output>
+      </label>
+      <div class="row">
+        <button class="btn" id="startBtn">スタート<kbd>Space</kbd></button>
+      </div>
+      <p class="note">ノーツが遅れて見える／音が遅れて聞こえる（Bluetoothイヤホン等）ときは補正を＋側へ。楽曲はWeb Audioでその場で合成しています。<br>Clawd は Anthropic の Claude Code マスコットをもとにした二次創作です。<br>制作：Claude（Opus 5.5）</p>
+    </div>
+  </div>
+
+  <!-- 一時停止 -->
+  <div id="pause" class="overlay" hidden>
+    <div class="panel">
+      <div class="eyebrow">Paused</div>
+      <h1>一時停止</h1>
+      <div class="row">
+        <button class="btn" id="resumeBtn">再開<kbd>Esc</kbd></button>
+        <button class="btn ghost" id="quitBtn">タイトルへ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- リザルト -->
+  <div id="result" class="overlay" hidden>
+    <div class="panel">
+      <div class="eyebrow" id="resDiff">Result · NORMAL</div>
+      <div class="res-top">
+        <div class="rank" id="resRank">S</div>
+        <div class="res-score">
+          <div class="lbl">SCORE</div>
+          <b id="resScore">0000000</b>
+          <div class="fc" id="resFc"></div>
+        </div>
+      </div>
+      <div class="tally">
+        <div><span class="lbl" style="color:var(--brass)">PERFECT</span><b id="rP">0</b></div>
+        <div><span class="lbl" style="color:var(--lilac)">GREAT</span><b id="rG">0</b></div>
+        <div><span class="lbl" style="color:var(--teal)">GOOD</span><b id="rO">0</b></div>
+        <div><span class="lbl" style="color:var(--clay-hi)">MISS</span><b id="rM">0</b></div>
+      </div>
+      <div class="sub" id="resSub"></div>
+      <div class="row">
+        <button class="btn" id="retryBtn">もう一度<kbd>Space</kbd></button>
+        <button class="btn ghost" id="backBtn">難易度を選ぶ</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* =========================================================
+   楽曲データ：Seven Claws
+   ========================================================= */
+const STEP = 0.2;                         // 8分音符 = 0.2秒（♪=300）
+const MIDI = m => 440 * Math.pow(2, (m - 69) / 12);
+const CHORDS = [
+  { name: 'Dm9',    bass: 38, notes: [53, 57, 60, 64] },
+  { name: 'B♭maj9', bass: 34, notes: [50, 53, 57, 60] },
+  { name: 'Gm9',    bass: 43, notes: [53, 57, 58, 62] },
+  { name: 'A7sus4', bass: 33, notes: [55, 57, 62, 64] },
+];
+const METERS = {
+  7:  { groups: [2, 2, 3],       drums: ['K.S.K.S',       'K.S.KkS'] },
+  10: { groups: [3, 3, 2, 2],    drums: ['K..K..S.KS',    'K.kK..S.KS'] },
+  13: { groups: [3, 3, 3, 2, 2], drums: ['K..K..K..S.S.', 'K..K.kK..S.SS'] },
+};
+const SECTIONS = [
+  { label: 'INTRO',    meter: 7,  bars: 4, drums: 1, bass: true, open: 0.3 },
+  { label: 'THEME',    meter: 7,  bars: 8, drums: 2, bass: true, stab: true, open: 0.7 },
+  { label: 'BRIDGE',   meter: 10, bars: 8, drums: 2, bass: true, pad: true, arp: true, open: 0.8 },
+  { label: 'HOOK',     meter: 7,  bars: 8, drums: 3, bass: true, stab: true, lead: true, open: 1 },
+  { label: 'THEME II', meter: 7,  bars: 8, drums: 3, bass: true, stab: true, arp: true, open: 1 },
+  { label: 'BREAK',    meter: 10, bars: 4, drums: 1, pad: true, arp: true, open: 0.5 },
+  { label: 'HOOK II',  meter: 7,  bars: 8, drums: 3, bass: true, stab: true, lead: true, open: 1 },
+  { label: 'CODA',     meter: 13, bars: 2, drums: 3, bass: true, stab: 'all', chords: [1, 3], open: 1 },
+];
+// フック旋律（7/8 × 8小節、0=休符）
+const LEAD = [
+  [81, 0, 77, 79, 0, 81, 84],
+  [81, 0, 77, 0, 74, 77, 76],
+  [77, 0, 79, 82, 0, 81, 79],
+  [76, 0, 74, 76, 0, 79, 81],
+  [86, 0, 84, 81, 0, 84, 86],
+  [84, 0, 81, 77, 0, 81, 79],
+  [82, 0, 81, 79, 0, 77, 79],
+  [76, 79, 81, 0, 76, 0, 74],
+];
+
+function buildSong() {
+  const steps = [];
+  let t = 0;
+  SECTIONS.forEach((sec, si) => {
+    const M = METERS[sec.meter];
+    let pat = M.drums[sec.drums >= 3 ? 1 : 0];
+    if (sec.drums === 1) pat = pat.replace(/[Sk]/g, '.');
+    const heads = []; let acc = 0;
+    M.groups.forEach(g => { heads.push(acc); acc += g; });
+    for (let b = 0; b < sec.bars; b++) {
+      const ci = sec.chords ? sec.chords[b % sec.chords.length] : b % 4;
+      const ch = CHORDS[ci];
+      for (let s = 0; s < sec.meter; s++) {
+        let gi = 0; while (gi + 1 < heads.length && heads[gi + 1] <= s) gi++;
+        const pos = s - heads[gi], glen = M.groups[gi], d = pat[s];
+        const ev = { t, sec: si, bar: b, s, gi, pos, isHead: pos === 0, meter: sec.meter, chord: ci,
+          sectionStart: b === 0 && s === 0, barStart: s === 0 };
+        ev.kick = d === 'K' ? 1 : d === 'k' ? 0.55 : 0;
+        ev.snare = d === 'S' ? 1 : 0;
+        ev.hat = pos === 0 ? 0.5 : 0.3;
+        ev.hat16 = sec.drums >= 3;
+        ev.hatOpen = sec.drums >= 3 && s === sec.meter - 1;
+        ev.crash = ev.sectionStart && si > 0;
+        if (sec.bass) {
+          if (pos === 0) { ev.bass = ch.bass + (gi % 2 ? 12 : 0); ev.bassDur = (glen === 3 ? 2 : glen) * STEP * 0.85; }
+          else if (glen === 3 && pos === 2) { ev.bass = ch.bass + 7; ev.bassDur = STEP * 0.8; }
+          else if (sec.drums >= 3 && glen === 2 && pos === 1 && gi === heads.length - 1) { ev.bass = ch.bass + 12; ev.bassDur = STEP * 0.7; }
+        }
+        if (sec.stab) {
+          const hit = sec.stab === 'all' ? pos === 0 : (s === 1 || s === heads[heads.length - 1] + 1);
+          if (hit) ev.stab = ch.notes;
+        }
+        if (sec.pad && s === 0) ev.pad = { notes: ch.notes, dur: sec.meter * STEP };
+        if (sec.arp) {
+          const seq = [0, 1, 2, 3, 2, 1];
+          ev.arpIdx = seq[(b * sec.meter + s) % seq.length];
+          ev.arp = ch.notes[ev.arpIdx] + 12;
+        }
+        if (sec.lead) {
+          const row = LEAD[b % 8], m = row[s];
+          if (m) {
+            let rests = 0; while (s + 1 + rests < row.length && !row[s + 1 + rests] && rests < 1) rests++;
+            ev.lead = { m, dur: (1 + rests) * STEP * 0.92 };
+          }
+        }
+        steps.push(ev);
+        t += STEP;
+      }
+    }
+  });
+  const last = SECTIONS.length - 1;
+  steps.push({ t, final: true, sec: last, bar: 0, s: 0, gi: 0, pos: 0, isHead: true, meter: 13, chord: 0,
+    barStart: true, kick: 1, snare: 0, crash: true, bass: 38, bassDur: 1.4, stab: [50, 53, 57, 60, 64] });
+  return steps;
+}
+const steps = buildSong();
+const END_TIME = steps[steps.length - 1].t + 2.6;
+
+/* ---------- 譜面生成（曲のイベントから導出） ---------- */
+function buildChart(level) {
+  const notes = [];
+  let kAlt = 0, sAlt = 0;
+  for (const ev of steps) {
+    const c = [];
+    const dbl = ev.sectionStart || ev.final;
+    if (dbl) c.push({ p: 1, lane: 0 }, { p: 1, lane: 3 });
+    if (ev.kick >= 1) c.push({ p: 1, lane: kAlt++ % 2 });
+    else if (ev.kick > 0) c.push({ p: 3, lane: 1 });
+    if (ev.snare >= 1) c.push({ p: 2, lane: 2 + (sAlt++ % 2) });
+    if (ev.lead) c.push({ p: ev.isHead ? 2 : 3, lane: Math.max(0, Math.min(3, Math.floor((ev.lead.m - 74) / 3.1))) });
+    if (ev.arp != null) c.push({ p: 3, lane: ev.arpIdx });
+    if (ev.stab && !ev.final) c.push({ p: 3, lane: 3 });
+    const sel = c.filter(x => x.p <= level).sort((a, b) => a.p - b.p);
+    const maxN = dbl ? 2 : (level >= 3 ? 2 : 1);
+    const used = new Set();
+    for (const x of sel) {
+      if (used.size >= maxN) break;
+      let lane = x.lane;
+      if (used.has(lane)) {
+        lane = [lane + 1, lane - 1, lane + 2, lane - 2, lane + 3, lane - 3].find(l => l >= 0 && l < 4 && !used.has(l));
+        if (lane == null) continue;
+      }
+      used.add(lane);
+      notes.push({ t: ev.t, lane, judged: false, hit: false, mesh: null });
+    }
+  }
+  return notes;
+}
+
+/* =========================================================
+   オーディオ（Web Audio で合成）
+   ========================================================= */
+let ctx = null, noiseBuf = null, impulse = null, bus = null, revIn = null, dlyIn = null;
+function initAudio() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const len = Math.floor(ctx.sampleRate * 2.4);
+  impulse = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = impulse.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+  }
+}
+// ゲームごとに出力系統を作り直す（途中終了時に予約済みの音をまとめて消せるように）
+function newBus() {
+  if (bus) { const old = bus; old.gain.setTargetAtTime(0, ctx.currentTime, 0.03); setTimeout(() => old.disconnect(), 400); }
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.16;
+  bus = ctx.createGain(); bus.gain.value = 0.85;
+  const master = ctx.createGain(); master.gain.value = 1;
+  master.connect(comp); comp.connect(bus); bus.connect(ctx.destination);
+  const conv = ctx.createConvolver(); conv.buffer = impulse;
+  revIn = ctx.createGain(); const revOut = ctx.createGain(); revOut.gain.value = 0.32;
+  revIn.connect(conv); conv.connect(revOut); revOut.connect(master);
+  dlyIn = ctx.createGain();
+  const dl = ctx.createDelay(1); dl.delayTime.value = STEP * 1.5;
+  const fb = ctx.createGain(); fb.gain.value = 0.36;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+  const dOut = ctx.createGain(); dOut.gain.value = 0.45;
+  dlyIn.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(dOut); dOut.connect(master); dOut.connect(revIn);
+  bus.master = master;
+}
+function out(node, rev = 0, dly = 0) {
+  node.connect(bus.master);
+  if (rev) { const g = ctx.createGain(); g.gain.value = rev; node.connect(g); g.connect(revIn); }
+  if (dly) { const g = ctx.createGain(); g.gain.value = dly; node.connect(g); g.connect(dlyIn); }
+}
+function noiseHit(t, dur, type, freq, v, q = 0.7, rev = 0) {
+  const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ctx.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  s.connect(f); f.connect(g); out(g, rev);
+  s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.03);
+}
+function kick(t, v) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(165, t); o.frequency.exponentialRampToValueAtTime(44, t + 0.13);
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+  o.connect(g); out(g); o.start(t); o.stop(t + 0.45);
+  noiseHit(t, 0.012, 'highpass', 3000, v * 0.22);
+}
+function snare(t, v) {
+  noiseHit(t, 0.2, 'bandpass', 1900, v * 0.85, 0.6, 0.28);
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(200, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.08);
+  g.gain.setValueAtTime(v * 0.45, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  o.connect(g); out(g); o.start(t); o.stop(t + 0.12);
+}
+const hat = (t, v, open) => noiseHit(t, open ? 0.24 : 0.045, 'highpass', 7600, v * 0.32, 0.8, open ? 0.2 : 0);
+const crash = t => noiseHit(t, 2.2, 'highpass', 4800, 0.34, 0.5, 0.5);
+function bass(t, m, dur, open) {
+  const o = ctx.createOscillator(), s = ctx.createOscillator();
+  o.type = 'sawtooth'; o.frequency.value = MIDI(m);
+  s.type = 'sine'; s.frequency.value = MIDI(m);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 7;
+  f.frequency.setValueAtTime(300 + 1500 * open, t); f.frequency.exponentialRampToValueAtTime(150, t + Math.max(0.12, dur));
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.3, t + 0.008);
+  g.gain.setValueAtTime(0.3, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.06);
+  const sg = ctx.createGain(); sg.gain.value = 0.9;
+  o.connect(f); f.connect(g); s.connect(sg); sg.connect(g); out(g);
+  o.start(t); s.start(t); o.stop(t + dur + 0.1); s.stop(t + dur + 0.1);
+}
+function stab(t, notes, dur) {
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 3;
+  f.frequency.setValueAtTime(2800, t); f.frequency.exponentialRampToValueAtTime(480, t + Math.min(0.3, dur));
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.24, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  f.connect(g); out(g, 0.35, 0.16);
+  notes.forEach(n => [-8, 8].forEach(dt => {
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = MIDI(n); o.detune.value = dt;
+    const og = ctx.createGain(); og.gain.value = 0.22; o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.05);
+  }));
+}
+function pad(t, notes, dur) {
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1100;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.13, t + 0.5);
+  g.gain.setValueAtTime(0.13, t + dur - 0.2); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.5);
+  f.connect(g); out(g, 0.6);
+  notes.forEach(n => ['triangle', 'sawtooth'].forEach((type, i) => {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = MIDI(n); o.detune.value = i ? 6 : -6;
+    const og = ctx.createGain(); og.gain.value = i ? 0.12 : 0.25; o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.6);
+  }));
+}
+function arp(t, m) {
+  const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = MIDI(m);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 4;
+  f.frequency.setValueAtTime(3400, t); f.frequency.exponentialRampToValueAtTime(420, t + 0.16);
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.055, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  o.connect(f); f.connect(g); out(g, 0.2, 0.35); o.start(t); o.stop(t + 0.22);
+}
+function lead(t, m, dur) {
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 3000; f.Q.value = 2;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.085, t + 0.012);
+  g.gain.setValueAtTime(0.085, t + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.1);
+  f.connect(g); out(g, 0.25, 0.4);
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 5.5;
+  const lg = ctx.createGain(); lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(9, t + dur);
+  lfo.connect(lg);
+  [['sawtooth', 1, 0.5], ['square', 2.004, 0.18]].forEach(([type, mul, gv]) => {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = MIDI(m) * mul;
+    lg.connect(o.detune);
+    const og = ctx.createGain(); og.gain.value = gv; o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.15);
+  });
+  lfo.start(t); lfo.stop(t + dur + 0.15);
+}
+function click(t, hi) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'square'; o.frequency.value = hi ? 1760 : 1320;
+  g.gain.setValueAtTime(hi ? 0.08 : 0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  o.connect(g); out(g); o.start(t); o.stop(t + 0.06);
+}
+function scheduleStep(ev, at) {
+  const open = SECTIONS[ev.sec].open;
+  if (ev.kick) kick(at, ev.kick);
+  if (ev.snare) snare(at, ev.snare);
+  if (!ev.final) {
+    hat(at, ev.hat, ev.hatOpen);
+    if (ev.hat16) hat(at + STEP / 2, 0.16, false);
+  }
+  if (ev.crash) crash(at);
+  if (ev.bass) bass(at, ev.bass, ev.bassDur, open);
+  if (ev.stab) stab(at, ev.stab, ev.final ? 1.8 : 0.26);
+  if (ev.pad) pad(at, ev.pad.notes, ev.pad.dur);
+  if (ev.arp != null) arp(at, ev.arp);
+  if (ev.lead) lead(at, ev.lead.m, ev.lead.dur);
+}
+
+/* =========================================================
+   Three.js シーン
+   ========================================================= */
+const canvas = $('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const INK = 0x0B0D17;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(INK);
+scene.fog = new THREE.Fog(INK, 14, 46);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 140);
+const CAM_BASE = new THREE.Vector3(0, 3.3, 4.6);
+camera.position.copy(CAM_BASE);
+camera.lookAt(0, 0, -9);
+
+const L = 38;
+const LANE_COL = [0xE08A66, 0xF2C14E, 0x8A96C9, 0x5FBFAE];
+const laneX = i => -1.5 + i;
+
+function gradTex() {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 128;
+  const g = c.getContext('2d'); const gr = g.createLinearGradient(0, 128, 0, 0);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 128);
+  return new THREE.CanvasTexture(c);
+}
+const GRAD = gradTex();
+
+// ハイウェイ
+const hw = new THREE.Group(); scene.add(hw);
+for (let i = 0; i < 4; i++) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.98, L + 6),
+    new THREE.MeshBasicMaterial({ color: i % 2 ? 0x141a30 : 0x121729 }));
+  m.rotation.x = -Math.PI / 2; m.position.set(laneX(i), 0, -(L + 6) / 2 + 3); hw.add(m);
+}
+for (let i = 0; i <= 4; i++) {
+  const edge = i === 0 || i === 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(edge ? 0.05 : 0.02, L + 6),
+    new THREE.MeshBasicMaterial({ color: edge ? 0x8A96C9 : 0x2A3154 }));
+  m.rotation.x = -Math.PI / 2; m.position.set(-2 + i, 0.003, -(L + 6) / 2 + 3); hw.add(m);
+}
+const hitBar = new THREE.Mesh(new THREE.PlaneGeometry(4.1, 0.07), new THREE.MeshBasicMaterial({ color: 0xECE6DA }));
+hitBar.rotation.x = -Math.PI / 2; hitBar.position.set(0, 0.006, 0); hw.add(hitBar);
+
+const receptors = [], beams = [];
+for (let i = 0; i < 4; i++) {
+  const r = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34),
+    new THREE.MeshBasicMaterial({ color: LANE_COL[i], transparent: true, opacity: 0.22, depthWrite: false }));
+  r.rotation.x = -Math.PI / 2; r.position.set(laneX(i), 0.008, 0); hw.add(r); receptors.push(r);
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 8),
+    new THREE.MeshBasicMaterial({ color: LANE_COL[i], map: GRAD, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  b.rotation.x = -Math.PI / 2; b.position.set(laneX(i), 0.01, -4); hw.add(b); beams.push(b);
+}
+
+// ノーツ（プール）
+const noteGeo = new THREE.BoxGeometry(0.88, 0.14, 0.3);
+const capGeo = new THREE.BoxGeometry(0.88, 0.03, 0.07);
+const laneMats = LANE_COL.map(c => new THREE.MeshBasicMaterial({ color: c }));
+const capMat = new THREE.MeshBasicMaterial({ color: 0xECE6DA });
+const missMat = new THREE.MeshBasicMaterial({ color: 0x3A3F5C });
+const pool = [];
+function takeMesh(lane) {
+  let m = pool.pop();
+  if (!m) { m = new THREE.Mesh(noteGeo, laneMats[0]); const cap = new THREE.Mesh(capGeo, capMat); cap.position.set(0, 0.085, 0.1); m.add(cap); scene.add(m); }
+  m.material = laneMats[lane]; m.visible = true;
+  m.position.set(laneX(lane), 0.08, -L);
+  return m;
+}
+function releaseMesh(n) { if (n.mesh) { n.mesh.visible = false; pool.push(n.mesh); n.mesh = null; } }
+
+// 変拍子トンネル：拍子の分子と同じ角数の多角形リング
+const polyCache = {};
+function polyGeo(n) {
+  if (polyCache[n]) return polyCache[n];
+  const pts = [];
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + Math.PI / 2; pts.push(new THREE.Vector3(Math.cos(a) * 7, Math.sin(a) * 7, 0)); }
+  return (polyCache[n] = new THREE.BufferGeometry().setFromPoints(pts));
+}
+const rings = [];
+const RING_N = 14, RING_GAP = 4.2;
+let tunnelSides = 7;
+for (let i = 0; i < RING_N; i++) {
+  const r = new THREE.LineLoop(polyGeo(7), new THREE.LineBasicMaterial({ color: i % 2 ? 0x8A96C9 : 0xC67D5F, transparent: true, opacity: 0.55 }));
+  r.position.set(0, 1.6, 2 - i * RING_GAP); r.rotation.z = i * 0.12; scene.add(r); rings.push(r);
+}
+
+// 星
+{
+  const g = new THREE.BufferGeometry(); const N = 500; const p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 70; p[i * 3 + 1] = Math.random() * 30 - 4; p[i * 3 + 2] = -Math.random() * 90 - 5; }
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xECE6DA, size: 0.09, transparent: true, opacity: 0.6 })));
+}
+
+// ヒット時の粒子
+const PN = 420;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(PN * 3), pCol = new Float32Array(PN * 3), pVel = new Float32Array(PN * 3), pLife = new Float32Array(PN), pBase = new Float32Array(PN * 3);
+for (let i = 0; i < PN; i++) pPos[i * 3 + 1] = -100;
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.13, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+let pNext = 0;
+function burst(lane, count, colHex) {
+  const c = new THREE.Color(colHex);
+  for (let k = 0; k < count; k++) {
+    const i = pNext; pNext = (pNext + 1) % PN;
+    pPos[i * 3] = laneX(lane) + (Math.random() - 0.5) * 0.7; pPos[i * 3 + 1] = 0.1; pPos[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+    pVel[i * 3] = (Math.random() - 0.5) * 3; pVel[i * 3 + 1] = 2 + Math.random() * 4; pVel[i * 3 + 2] = (Math.random() - 0.3) * 2;
+    pLife[i] = 0.5 + Math.random() * 0.3;
+    pBase[i * 3] = c.r; pBase[i * 3 + 1] = c.g; pBase[i * 3 + 2] = c.b;
+  }
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight, a = w / h;
+  renderer.setSize(w, h, false);
+  camera.aspect = a;
+  camera.fov = Math.min(100, Math.max(55, 2 * Math.atan(0.5 / a) * 180 / Math.PI));
+  camera.updateProjectionMatrix();
+  placeLabels();
+}
+const labelsEl = $('labels');
+const KEY_LABELS = ['D', 'F', 'J', 'K'];
+KEY_LABELS.forEach(k => { const s = document.createElement('span'); s.textContent = k; labelsEl.appendChild(s); });
+const v3 = new THREE.Vector3();
+function toScreen(x, z) { v3.set(x, 0, z).project(camera); return [(v3.x + 1) / 2 * window.innerWidth, (1 - v3.y) / 2 * window.innerHeight]; }
+function placeLabels() {
+  camera.updateMatrixWorld();
+  [...labelsEl.children].forEach((s, i) => {
+    const [x, y] = toScreen(laneX(i), 0.35);
+    s.style.left = x + 'px'; s.style.top = Math.min(y + 4, window.innerHeight - 28) + 'px';
+  });
+}
+function laneAtX(px) {
+  let lane = 0;
+  for (let i = 1; i < 4; i++) if (px >= toScreen(-2 + i, 0)[0]) lane = i;
+  return lane;
+}
+window.addEventListener('resize', resize);
+
+/* =========================================================
+   Clawd（clawd-mascot スキルの実装を流用）
+   ========================================================= */
+const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const crabAll = $('crabAll'), armL = $('armL'), armR = $('armR'), eyeL = $('eyeL'), eyeR = $('eyeR'), zzz = $('zzz');
+let crabSleeping = false, sideFlip = 1;
+function crabDance(step, isStart, isSnare) {
+  if (prefersReduced || crabSleeping) return;
+  if (isSnare) sideFlip *= -1;
+  if (isStart) {
+    crabAll.style.transform = `translate(${sideFlip * 4}px, -7px)`;
+    armL.style.transform = 'rotate(16deg)';
+    armR.style.transform = 'rotate(-16deg)';
+  } else {
+    crabAll.style.transform = `translate(${sideFlip * 2}px, 0)`;
+    armL.style.transform = '';
+    armR.style.transform = '';
+  }
+  const up = step % 2 === 0 ? '.legA' : '.legB';
+  const down = step % 2 === 0 ? '.legB' : '.legA';
+  document.querySelectorAll(up).forEach(l => l.style.transform = 'translateY(-4px)');
+  document.querySelectorAll(down).forEach(l => l.style.transform = '');
+}
+function setCrabSleep(on) {
+  crabSleeping = on;
+  eyeL.style.transform = on ? 'scaleY(0.18)' : '';
+  eyeR.style.transform = on ? 'scaleY(0.18)' : '';
+  zzz.setAttribute('opacity', on ? '1' : '0');
+  crabAll.style.transform = '';
+  armL.style.transform = '';
+  armR.style.transform = '';
+  document.querySelectorAll('#legs rect').forEach(l => l.style.transform = '');
+}
+function crabBanzai() {   // 両腕上げ：armL プラス / armR マイナス
+  if (prefersReduced) return;
+  crabAll.style.transform = 'translate(0, -12px)';
+  armL.style.transform = 'rotate(38deg)';
+  armR.style.transform = 'rotate(-38deg)';
+}
+let winceTimer = 0;
+function crabWince() {
+  if (crabSleeping) return;
+  eyeL.style.transform = eyeR.style.transform = 'scaleY(0.35)';
+  clearTimeout(winceTimer);
+  winceTimer = setTimeout(() => { if (!crabSleeping) eyeL.style.transform = eyeR.style.transform = ''; }, 240);
+}
+
+/* =========================================================
+   ゲーム状態
+   ========================================================= */
+const WIN = { P: 0.045, G: 0.09, O: 0.14 };
+const MUL = { P: 1, G: 0.7, O: 0.35 };
+const JUDGE_UI = { P: ['PERFECT', '#F2C14E'], G: ['GREAT', '#8A96C9'], O: ['GOOD', '#5FBFAE'], M: ['MISS', '#E08A66'] };
+const DIFF_NAME = { 1: 'EASY', 2: 'NORMAL', 3: 'HARD' };
+const APPROACH = { 1: 1.9, 2: 1.55, 3: 1.25 };
+const LEADIN = 2.4;
+
+let state = 'title';
+let level = store.get('clawd78.level', 2);
+let offsetMs = store.get('clawd78.offset', 0);
+let notes = [], active = [], approach = 1.55;
+let songStart = 0, nextAudio = 0, nextVis = 0, spawnIdx = 0, judgeFrom = 0;
+let score = 0, shownScore = 0, perNote = 0, combo = 0, maxCombo = 0;
+let stats = { P: 0, G: 0, O: 0, M: 0, fast: 0, slow: 0 };
+const pressed = [false, false, false, false], flash = [0, 0, 0, 0];
+let pulse = 0, camKick = 0;
+
+function latency() { return ctx ? (ctx.outputLatency || ctx.baseLatency || 0) : 0; }
+function songTime() { return ctx.currentTime - songStart - latency() - offsetMs / 1000; }
+
+// 難易度ボタン
+const chartCounts = { 1: buildChart(1).length, 2: buildChart(2).length, 3: buildChart(3).length };
+function refreshDiffs() {
+  [1, 2, 3].forEach(l => {
+    $('diff' + l).setAttribute('aria-pressed', String(l === level));
+    const best = store.get('clawd78.best' + l, 0);
+    $('info' + l).textContent = `${chartCounts[l]} notes · BEST ${best ? String(best).padStart(7, '0') : '—'}`;
+  });
+}
+[1, 2, 3].forEach(l => $('diff' + l).addEventListener('click', () => { level = l; store.set('clawd78.level', l); refreshDiffs(); }));
+refreshDiffs();
+const offEl = $('offset');
+offEl.value = offsetMs;
+const showOff = () => $('offsetOut').textContent = (offsetMs > 0 ? '+' : '') + offsetMs + ' ms';
+showOff();
+offEl.addEventListener('input', () => { offsetMs = +offEl.value; store.set('clawd78.offset', offsetMs); showOff(); });
+
+// HUD：拍子グループ表示
+const groupsEl = $('meterGroups');
+let pipEls = [], curMeter = 0, lastPip = null;
+function buildMeterHud(meter) {
+  curMeter = meter;
+  const g = METERS[meter].groups;
+  groupsEl.innerHTML = ''; pipEls = [];
+  g.forEach(n => {
+    const box = document.createElement('div'); box.className = 'grp';
+    for (let i = 0; i < n; i++) { const p = document.createElement('i'); p.className = 'pip' + (i === 0 ? ' head' : ''); box.appendChild(p); pipEls.push(p); }
+    groupsEl.appendChild(box);
+  });
+  $('meterSig').textContent = meter + '/8';
+  $('grpNum').textContent = g.join('+');
+  lastPip = null;
+}
+buildMeterHud(7);
+
+function setSection(ev) {
+  $('secLabel').innerHTML = `${SECTIONS[ev.sec].label} · <b>${CHORDS[ev.chord].name}</b>`;
+}
+
+let stepCounter = 0;
+const floorEl = $('floor');
+function onVisStep(ev) {
+  if (ev.meter !== curMeter) buildMeterHud(ev.meter);
+  if (ev.barStart) setSection(ev);
+  if (lastPip) lastPip.classList.remove('on');
+  lastPip = pipEls[ev.s]; if (lastPip) lastPip.classList.add('on');
+  if (ev.meter !== tunnelSides) tunnelSides = ev.meter;
+  if (ev.isHead) { pulse = ev.s === 0 ? 1 : 0.6; camKick = ev.s === 0 ? 1 : 0.5; floorEl.classList.add('beat'); }
+  else floorEl.classList.remove('beat');
+  crabDance(stepCounter++, ev.isHead, ev.snare >= 1);
+  if (ev.final) crabBanzai();
+}
+
+function renderScore() {
+  $('score').textContent = String(Math.round(shownScore)).padStart(7, '0');
+}
+function renderCombo() {
+  $('combo').innerHTML = combo >= 3 ? `${combo}<small>COMBO</small>` : '';
+}
+const jt = $('judgeText'), jm = $('judgeMs');
+function showJudge(k, d) {
+  const [txt, col] = JUDGE_UI[k];
+  jt.textContent = txt; jt.style.color = col;
+  jt.classList.remove('pop'); void jt.offsetWidth; jt.classList.add('pop');
+  jm.textContent = (k === 'M' || k === 'P') ? '' : (d < 0 ? 'FAST ' : 'SLOW ') + Math.round(Math.abs(d) * 1000) + 'ms';
+}
+
+function judgeNote(n, d) {
+  n.judged = true; n.hit = true;
+  const a = Math.abs(d);
+  const k = a <= WIN.P ? 'P' : a <= WIN.G ? 'G' : 'O';
+  stats[k]++;
+  if (k !== 'P') d < 0 ? stats.fast++ : stats.slow++;
+  combo++; maxCombo = Math.max(maxCombo, combo);
+  score += perNote * MUL[k];
+  showJudge(k, d); renderCombo();
+  burst(n.lane, k === 'P' ? 22 : 12, k === 'P' ? 0xF2C14E : LANE_COL[n.lane]);
+  flash[n.lane] = 1;
+  if (combo > 0 && combo % 50 === 0) crabBanzai();
+}
+function missNote(n) {
+  n.judged = true;
+  stats.M++; combo = 0; renderCombo();
+  if (n.mesh) n.mesh.material = missMat;
+  showJudge('M'); crabWince();
+}
+function press(lane) {
+  pressed[lane] = true;
+  if (state !== 'play') return;
+  flash[lane] = Math.max(flash[lane], 0.45);
+  const now = songTime();
+  let best = null, bd = 9;
+  for (let i = judgeFrom; i < notes.length; i++) {
+    const n = notes[i];
+    if (n.t - now > WIN.O) break;
+    if (n.judged || n.lane !== lane) continue;
+    const d = now - n.t;
+    if (Math.abs(d) <= WIN.O && Math.abs(d) < Math.abs(bd)) { best = n; bd = d; }
+  }
+  if (best) judgeNote(best, bd);
+}
+function unpress(lane) { pressed[lane] = false; }
+
+function show(id) { ['title', 'pause', 'result'].forEach(x => $(x).hidden = x !== id); }
+
+async function startGame() {
+  if (state === 'play') return;
+  if (!ctx) initAudio();
+  try { await ctx.resume(); } catch (e) {}
+  newBus();
+  active.forEach(releaseMesh); active = [];
+  notes = buildChart(level);
+  approach = APPROACH[level];
+  perNote = 1e6 / notes.length;
+  score = shownScore = 0; combo = maxCombo = 0;
+  stats = { P: 0, G: 0, O: 0, M: 0, fast: 0, slow: 0 };
+  nextAudio = nextVis = spawnIdx = judgeFrom = 0; stepCounter = 0;
+  songStart = ctx.currentTime + LEADIN;
+  // 7/8（2+2+3）のカウントイン
+  for (let k = 0; k < 7; k++) click(songStart - (7 - k) * STEP, k === 0 || k === 2 || k === 4);
+  renderScore(); renderCombo();
+  buildMeterHud(7); setSection(steps[0]);
+  jt.classList.remove('pop'); jm.textContent = '';
+  setCrabSleep(false);
+  state = 'play';
+  show(null);
+  canvas.focus?.();
+}
+function pauseGame() {
+  if (state !== 'play') return;
+  state = 'paused'; ctx.suspend(); show('pause');
+}
+function resumeGame() {
+  if (state !== 'paused') return;
+  ctx.resume(); state = 'play'; show(null);
+}
+function quitToTitle() {
+  if (ctx) { ctx.resume(); newBus(); }
+  active.forEach(releaseMesh); active = [];
+  state = 'title'; refreshDiffs(); show('title'); setCrabSleep(true);
+}
+function finish() {
+  state = 'result';
+  const s = Math.round(score);
+  const rank = s >= 950000 ? 'S' : s >= 900000 ? 'A' : s >= 800000 ? 'B' : s >= 700000 ? 'C' : 'D';
+  const key = 'clawd78.best' + level;
+  const prev = store.get(key, 0);
+  if (s > prev) store.set(key, s);
+  $('resDiff').textContent = `Result · ${DIFF_NAME[level]}` + (s > prev ? ' · NEW BEST' : '');
+  $('resRank').textContent = rank;
+  $('resScore').textContent = String(s).padStart(7, '0');
+  $('resFc').textContent = stats.M === 0 ? (stats.P === notes.length ? 'ALL PERFECT' : 'FULL COMBO') : '';
+  $('rP').textContent = stats.P; $('rG').textContent = stats.G; $('rO').textContent = stats.O; $('rM').textContent = stats.M;
+  $('resSub').textContent = `MAX COMBO ${maxCombo} / ${notes.length} · FAST ${stats.fast} · SLOW ${stats.slow}`;
+  show('result');
+  if (rank === 'S' || rank === 'A') crabBanzai();
+  else if (rank === 'D') setCrabSleep(true);
+}
+
+/* ---------- 入力 ---------- */
+const KEYMAP = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3, ArrowLeft: 0, ArrowDown: 1, ArrowUp: 2, ArrowRight: 3 };
+window.addEventListener('keydown', e => {
+  if (e.code in KEYMAP) {
+    e.preventDefault();
+    if (!e.repeat) press(KEYMAP[e.code]);
+    return;
+  }
+  if (e.code === 'Escape') { state === 'play' ? pauseGame() : resumeGame(); return; }
+  if ((e.code === 'Space' || e.code === 'Enter') && (state === 'title' || state === 'result')) {
+    e.preventDefault(); startGame();
+  }
+});
+window.addEventListener('keyup', e => { if (e.code in KEYMAP) unpress(KEYMAP[e.code]); });
+const pointerLane = new Map();
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const lane = laneAtX(e.clientX);
+  pointerLane.set(e.pointerId, lane);
+  press(lane);
+});
+const endPointer = e => { if (pointerLane.has(e.pointerId)) { unpress(pointerLane.get(e.pointerId)); pointerLane.delete(e.pointerId); } };
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+
+$('startBtn').addEventListener('click', startGame);
+$('retryBtn').addEventListener('click', startGame);
+$('backBtn').addEventListener('click', quitToTitle);
+$('resumeBtn').addEventListener('click', resumeGame);
+$('quitBtn').addEventListener('click', quitToTitle);
+
+/* ---------- 音の先読みスケジューラ ---------- */
+setInterval(() => {
+  if (state !== 'play' || !ctx) return;
+  const horizon = ctx.currentTime + 0.15;
+  while (nextAudio < steps.length && songStart + steps[nextAudio].t < horizon) {
+    scheduleStep(steps[nextAudio], Math.max(ctx.currentTime, songStart + steps[nextAudio].t));
+    nextAudio++;
+  }
+}, 25);
+
+/* ---------- 描画ループ ---------- */
+let last = performance.now(), clock = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  const nowMs = performance.now();
+  const dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs; clock += dt;
+
+  if (state === 'play') {
+    const now = songTime();
+    while (nextVis < steps.length && steps[nextVis].t <= now) onVisStep(steps[nextVis++]);
+    while (spawnIdx < notes.length && notes[spawnIdx].t - now < approach) {
+      const n = notes[spawnIdx++];
+      if (!n.judged) { n.mesh = takeMesh(n.lane); active.push(n); }
+    }
+    while (judgeFrom < notes.length) {
+      const n = notes[judgeFrom];
+      if (n.judged) { judgeFrom++; continue; }
+      if (now - n.t > WIN.O) { missNote(n); judgeFrom++; continue; }
+      break;
+    }
+    for (let i = active.length - 1; i >= 0; i--) {
+      const n = active[i];
+      if (n.hit) { releaseMesh(n); active.splice(i, 1); continue; }
+      const z = -(n.t - now) / approach * L;
+      n.mesh.position.z = z;
+      if (z > 4) { releaseMesh(n); active.splice(i, 1); }
+    }
+    $('prog').style.width = Math.max(0, Math.min(100, now / END_TIME * 100)) + '%';
+    if (now > END_TIME) finish();
+  }
+
+  // スコアのカウントアップ
+  if (shownScore !== score) { shownScore += (score - shownScore) * Math.min(1, dt * 14); if (Math.abs(score - shownScore) < 1) shownScore = score; renderScore(); }
+
+  // トンネル
+  const speed = state === 'play' ? 7 : 2.2;
+  pulse *= Math.exp(-dt * 7); camKick *= Math.exp(-dt * 10);
+  for (const r of rings) {
+    r.position.z += speed * dt;
+    r.rotation.z += dt * 0.08;
+    if (r.position.z > 4) {
+      r.position.z -= RING_N * RING_GAP;
+      r.geometry = polyGeo(tunnelSides);
+    }
+    const s = 1 + pulse * 0.06;
+    r.scale.set(s, s, 1);
+    r.material.opacity = 0.35 + pulse * 0.45;
+  }
+  hitBar.material.color.setScalar(0.75 + pulse * 0.25);
+
+  // レシーバーと光の柱
+  for (let i = 0; i < 4; i++) {
+    flash[i] *= Math.exp(-dt * 9);
+    receptors[i].material.opacity = (pressed[i] ? 0.8 : 0.22) + flash[i] * 0.2;
+    beams[i].material.opacity = Math.max(pressed[i] ? 0.18 : 0, flash[i] * 0.55);
+  }
+
+  // 粒子
+  for (let i = 0; i < PN; i++) {
+    if (pLife[i] <= 0) continue;
+    pLife[i] -= dt;
+    const j = i * 3;
+    pVel[j + 1] -= 9 * dt;
+    pPos[j] += pVel[j] * dt; pPos[j + 1] += pVel[j + 1] * dt; pPos[j + 2] += pVel[j + 2] * dt;
+    const f = Math.max(0, pLife[i] / 0.8);
+    pCol[j] = pBase[j] * f; pCol[j + 1] = pBase[j + 1] * f; pCol[j + 2] = pBase[j + 2] * f;
+    if (pLife[i] <= 0) pPos[j + 1] = -100;
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+
+  // カメラ
+  if (!prefersReduced) {
+    camera.position.set(CAM_BASE.x + Math.sin(clock * 0.4) * 0.12, CAM_BASE.y - camKick * 0.06, CAM_BASE.z);
+    camera.lookAt(0, 0, -9);
+  }
+  renderer.render(scene, camera);
+}
+
+resize();
+setCrabSleep(true);
+show('title');
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
